@@ -1,6 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+#This is to add VGG to the current framework
+class VGG(nn.Module):
+    def __init__(self):
+        return
+
+
 class ClassicCNN(nn.Module):
     def __init__(self):
         super(ClassicCNN, self).__init__()
