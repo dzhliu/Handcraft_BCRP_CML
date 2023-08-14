@@ -9,21 +9,23 @@
 #SBATCH --qos=short
 
 # The default run (wall-clock) time is 1 minute
-#SBATCH --time=2:00:00
+#SBATCH --time=04:00:00
 
 # The default number of parallel tasks per job is 1
 #SBATCH --ntasks=1
 
 # The default number of CPUs per task is 1, however CPUs are always allocated per 2, so for a single task you should use 
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=2
 
 # The default memory per node is 1024 megabytes (1GB)
-#SBATCH --mem=20GB
+#SBATCH --mem=8GB
 
-#SBATCH --gres=gpu:a40:1
+#SBATCH --gres=gpu:1
 
 # Set mail type to 'END' to receive a mail when the job finishes (with usage statistics)
 #SBATCH --mail-type=END
+
+#SBATCH -o job.out
 
 # Measure GPU usage of your job (initialization)
 previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/tail -n '+2')
@@ -36,21 +38,26 @@ previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utili
 
 #Output file
 #SBATCH --output=/home/nfs/yanqiqiao/backdoor-attacks-against-federated-learning-masteroutputs/%x.%j.out
+#module use /opt/insy/modulefiles
+#module load cuda/11.1 cudnn/11.1-8.0.5.39 miniconda/3.9
+#module list
 module use /opt/insy/modulefiles
-module load cuda/11.1 cudnn/11.1-8.0.5.39 miniconda/3.9
-module list
+module load miniconda/3.9
+module load cuda/11.8
 
 # Your job commands go below here
 
 #echo "Sourcing Ablation venv"
-conda activate attack
+#conda activate attack
+conda activate FLP37update
+
 echo -ne "Executing script "
 echo $1
 echo -ne "Running on node "
 hostname
 echo "Standard output:"
 
-srun python main.py 
+srun python main.py --device='cuda:0' --batch_size=32 --model='vgg11'
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"
