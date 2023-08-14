@@ -8,8 +8,8 @@ from data_poison import *
 import wandb
 
 
-wandb.login(key = 'b1388ac8787c26ef61a3efec09fe333eb4faa8d2')
-wandb.init(project="Handcraft_BCRP_CML", name = "backdoor_model_sig5", entity="yqqiao")  ####here
+#wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
+wandb.init(project="HBCRP-VGG11test", name="vgg11-batch32-ep200-fmnist-train-backdoor", entity="dzhliu")  ####here
 
 ########   args ################
 def parse_args():
