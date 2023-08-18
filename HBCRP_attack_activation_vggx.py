@@ -15,20 +15,17 @@ import util
 def parse_args_attack_activation():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, default='./data')
-    parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--device', type=str, default='cpu')    # cuda:0
-    parser.add_argument('--dataset', type=str, default="fmnist") #fmnist cifar10
+    parser.add_argument('--dataset', type=str, default="cifar10") #fmnist cifar10
     parser.add_argument('--batch_size', type=int, default=200)
     parser.add_argument('--target_label', type=int, default=7)
     parser.add_argument('--attack_ratio', type=float, default=0.1)
     parser.add_argument('--attack_mode', type=str, default="sig")
-    parser.add_argument('--topk_ratio', type=float, default=0.04)
-    parser.add_argument('--alpha', type=float, default=0.4)
+    parser.add_argument('--topk_ratio', type=float, default=0.1) #0.2?
+    parser.add_argument('--alpha', type=float, default=1.0)
     parser.add_argument('--model', type=str, default='vgg11')
-    parser.add_argument('--benign_model_name', type=str, default="vgg11_fmnist_3232_benign.pt")
-    parser.add_argument('--backdoored_model_name', type=str, default="vgg11_batch128_ep128_fmnist_ratio0.1_modesig_TrainBD.pt")
-    #parser.add_argument('--benign_model_name', type=str, default="vgg11_cifar10_3232_benign.pt")
-    #parser.add_argument('--backdoored_model_name', type=str, default="vgg11_batch128_ep128_cifar10_ratio0.1_modesig_TrainBD.pt")
+    parser.add_argument('--benign_model_name', type=str, default="vgg11_cifar10_benign_bn_avgp.pt")
+    parser.add_argument('--backdoored_model_name', type=str, default="vgg11_batch128_ep200_cifar10_ratio0.1_strength5_modesig_TrainBD.pt")
     return parser.parse_args()
 
 args = parse_args_attack_activation()
@@ -109,13 +106,14 @@ print('done')
 backdoor_model = torch.load('./saved_model/'+args.backdoored_model_name, map_location=args.device)
 
 print("backdoor model:")
-util.test_backdoor_model(backdoor_model,test_loader,args.target_label,args.attack_ratio,args.attack_mode,'cpu', 200)
+util.test_backdoor_model(backdoor_model,test_loader,args.target_label,args.attack_ratio,args.attack_mode,'cpu', 5)
 print("---------------")
 
 # poison the dataset
 print('poisoning the dataset...',end=' ')
 for batch_idx, (data, label) in enumerate(train_loader):
-    data, label = find_sig_poison(data, label, target_label=args.target_label, attack_ratio=1.0, num_channels=num_channels)
+    data, label = find_sig_poison(data, label, target_label=args.target_label, attack_ratio=1.0, strength=255, num_channel=num_channels)
+    #data, label = sig_poison(data, label, target_label=args.target_label, attack_ratio=1.0, strength=255, num_channel=num_channels)
     data = data.to(args.device)
     label = label.to(args.device)
 print('done.')
@@ -213,9 +211,9 @@ print('done')
 # _, indices_3 = torch.topk(torch.abs(sum_d0), math.floor(len(sum_d0) * args.topk_ratio), largest=True)
 diff_indices = {}
 for key, layer in indices_benign.items():
-    s = torch.isin((indices_benign[key]), indices_malicious[key]).long()
+    s = torch.isin(indices_malicious[key], indices_benign[key]).long()
     idx = torch.nonzero(s -1)
-    diff_indices[key] = indices_benign[key][idx].squeeze(1)
+    diff_indices[key] = indices_malicious[key][idx].squeeze(1)
 
 
 ############ Step3: manipulating weights in BCRP ####################
@@ -228,11 +226,12 @@ for name, parameters in benign_model.named_parameters():
     benign_param[name] = parameters.detach()
 
 for key,indices in diff_indices.items():
-    if 'fc0' in key.lower() or 'fc1' in key.lower() or 'fc2' in key.lower():
+    #if 'fc0' in key.lower() or 'fc1' in key.lower() or 'fc2' in key.lower():
+    if 'fc1' in key.lower() or 'fc2' in key.lower():
         benign_param[key + '.weight'][indices] = benign_param[key + '.weight'][indices] + \
                                                  args.alpha * (bd_param[key + '.weight'][indices] - benign_param[key + '.weight'][indices])
-        benign_param[key + '.bias'][indices] = benign_param[key + '.bias'][indices] + \
-                                                 args.alpha * (bd_param[key + '.bias'][indices] - benign_param[key + '.bias'][indices])
+        #benign_param[key + '.bias'][indices] = benign_param[key + '.bias'][indices] + \
+        #                                         args.alpha * (bd_param[key + '.bias'][indices] - benign_param[key + '.bias'][indices])
 
 
 ############ Step4: using the mask(square) with alpha intensity (test data) ####################
@@ -242,4 +241,4 @@ with torch.no_grad():
             param.copy_(benign_param[name])
 
 #test_backdoor_model(benign_model, test_loader)
-util.test_backdoor_model(benign_model, test_loader, args.target_label, args.attack_ratio, args.attack_mode, args.device, 100)
+util.test_backdoor_model(benign_model, test_loader, args.target_label, args.attack_ratio, args.attack_mode, args.device, strength=100)

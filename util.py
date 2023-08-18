@@ -33,11 +33,11 @@ def test_backdoor_model(model, test_loader, target_label, attack_ratio, trigger_
     model.eval()
     for batch_idx, (data, label) in enumerate(test_loader):
         if trigger_type == 'sig':
-            data, label = data_poison.sig_poison(data, label, target_label, attack_ratio = attack_ratio, strength=strength)
+            data, label = data_poison.sig_poison(data, label, target_label, attack_ratio = 1.0, strength=strength, num_channel=3)
         elif trigger_type == 'find_sig':
-            data, label = data_poison.find_sig_poison(data, label, target_label, attack_ratio=attack_ratio, strength=strength)
+            data, label = data_poison.find_sig_poison(data, label, target_label, attack_ratio=1.0, strength=strength, num_channel=3)
         elif trigger_type == 'square':
-            data, label = data_poison.square_poison(data, label, target_label, attack_ratio=attack_ratio, strength=strength)
+            data, label = data_poison.square_poison(data, label, target_label, attack_ratio=1.0, strength=strength, num_channel=3)
         else:
             raise Exception(f'Error, unknown trigger type {trigger_type} in util.py')
         data = data.to(device=device)

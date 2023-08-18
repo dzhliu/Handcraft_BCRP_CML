@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument('--attack_ratio', type=float, default=0.1)
     parser.add_argument('--attack_mode', type=str, default="sig") #square or sig
     parser.add_argument('--model', type=str, default="vgg11")
-    parser.add_argument('--benign_model_name', type=str, default="vgg11_fmnist_3232_benign.pt")
+    parser.add_argument('--benign_model_name', type=str, default="vgg11_fmnist_benign_bn_avgp.pt")
     return parser.parse_args()
 
 args=parse_args()
@@ -39,9 +39,11 @@ def test_backdoor_model(model, test_loader):
     model.eval()
     for batch_idx, (data, label) in enumerate(test_loader):
         if args.attack_mode == 'square':
-            data, label = square_poison(data, label, args.target_label, attack_ratio = 255)
+            data, label = square_poison(data, label, args.target_label, attack_ratio = 1.0, strength=5, num_channel=3)##################TODO: pass
+            # num_channel
         elif args.attack_mode == 'sig':
-            data, label = sig_poison(data, label, args.target_label, attack_ratio=255)
+            data, label = sig_poison(data, label, args.target_label, attack_ratio= 1.0, strength=5, num_channel=3) ############TODO: pass
+            # num_channel
         else:
             raise Exception(f'unknown attack mode:{args.attack_mode}.')
         data = data.to(device=args.device)
@@ -58,6 +60,33 @@ def test_backdoor_model(model, test_loader):
     bd_acc = acc
     print('backdoor accuracy  = {}'.format(acc))
     wandb.log({"backdoor accuracy": acc})
+    ########### backdoor accuracy ##############
+    total_test_number = 0
+    correctly_labeled_samples = 0
+    model.eval()
+    for batch_idx, (data, label) in enumerate(test_loader):
+        if args.attack_mode == 'square':
+            data, label = square_poison(data, label, args.target_label, attack_ratio=1.0, strength=255, num_channel=3)  ##################TODO: pass
+            # num_channel
+        elif args.attack_mode == 'sig':
+            data, label = sig_poison(data, label, args.target_label, attack_ratio=1.0, strength=255, num_channel=3)  ############TODO: pass
+            # num_channel
+        else:
+            raise Exception(f'unknown attack mode:{args.attack_mode}.')
+        data = data.to(device=args.device)
+        label = label.to(device=args.device)
+        output = model(data)
+        total_test_number += len(output)
+        _, pred_labels = torch.max(output, 1)
+        pred_labels = pred_labels.view(-1)
+
+        correctly_labeled_samples += torch.sum(torch.eq(pred_labels, label)).item()
+    model.train()
+
+    acc = correctly_labeled_samples / total_test_number
+    str_bd_acc = acc
+    print('strong backdoor accuracy  = {}'.format(str_bd_acc))
+    wandb.log({"backdoor accuracy":acc, "strong backdoor accuracy":str_bd_acc})
     ########### benign accuracy ##############
     total_test_number = 0
     correctly_labeled_samples = 0
