@@ -20,7 +20,7 @@
 # The default memory per node is 1024 megabytes (1GB)
 #SBATCH --mem=8GB
 
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:a40:1
 
 # Set mail type to 'END' to receive a mail when the job finishes (with usage statistics)
 #SBATCH --mail-type=END
@@ -34,7 +34,7 @@ previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utili
 /usr/bin/nvidia-smi
 
 #Job name
-#SBATCH --job-name=start
+#SBATCH --job-name=vgg11cifar10
 
 #Output file
 #SBATCH --output=/home/nfs/yanqiqiao/backdoor-attacks-against-federated-learning-masteroutputs/%x.%j.out
@@ -49,7 +49,7 @@ module load cuda/11.8
 
 #echo "Sourcing Ablation venv"
 #conda activate attack
-conda activate FLP37update
+conda activate FLP37updated
 
 echo -ne "Executing script "
 echo $1
@@ -57,7 +57,7 @@ echo -ne "Running on node "
 hostname
 echo "Standard output:"
 
-srun python main.py --device='cuda:0' --batch_size=32 --model='vgg11'
+srun python main.py --device='cuda:0' --batch_size=128 --model='vgg11'
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"

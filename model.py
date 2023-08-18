@@ -1,17 +1,17 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import collections
 
 #This is to add VGG to the current framework
 class ClassicVGGx(nn.Module):
 
     #definition of commonly used VGG structures
     net_arche_cfg = {
-        'vgg11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M', 'FC1', 'FC2', 'FC3'],
-        'vgg13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M', 'FC1', 'FC2', 'FC3'],
-        'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M', 'FC1', 'FC2', 'FC3'],
-        'vgg19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M', 'FC1', 'FC2', 'FC3'],
+        'vgg11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M', 'ap', 'FC1', 'FC2', 'FC3'],
+        'vgg13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M', 'ap', 'FC1', 'FC2', 'FC3'],
+        'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M', 'ap', 'FC1', 'FC2', 'FC3'],
+        'vgg19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M', 'ap', 'FC1', 'FC2', 'FC3']
     }
 
     def __init__(self, arch_name, num_classes, num_input_channels):
@@ -25,8 +25,15 @@ class ClassicVGGx(nn.Module):
         except KeyError:
             print(f"the specified vgg structure {arch_name} does not exist. Please define the structure in model.py before use")
 
-        conv_layers = []
-        fc_layers = []
+        feature_layers = collections.OrderedDict() # conv layer and maxpooling layer
+        classifier_layers = collections.OrderedDict() # fc layer and relu layer
+        conv_layer_seq = 0
+        fc_layer_seq = 0
+        maxpooling_layer_seq = 0
+        relu_layer_seq = 0
+        dropout_layer_seq = 0
+        batch_norm2d_seq = 0
+        ap_layer_seq = 0
 
         # the var 'num_input_channels' indicates the number of input channels of the original picture
         # e.g., handwriting photo contains single channel picture, so num_input_channels = 1. RGB picture contains 3 channels, num_input_channels = 3
@@ -34,29 +41,46 @@ class ClassicVGGx(nn.Module):
 
         for elem in arch_structure_def:
             if elem == 'M':
-                conv_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+                feature_layers['M'+str(maxpooling_layer_seq)] = nn.MaxPool2d(kernel_size=2, stride=2)
+                maxpooling_layer_seq += 1
             elif elem == "FC1":
-                fc_layers.append(nn.Linear(512*7*7, 4096))
-                fc_layers.append(nn.ReLU(inplace=True))
+                classifier_layers['FC' + str(fc_layer_seq)] = nn.Linear(512 * 7 * 7, 4096) # the minimum input image size is 32*32
+                fc_layer_seq += 1
+                classifier_layers['ReLu'+str(relu_layer_seq)] = nn.ReLU(inplace=True)
+                relu_layer_seq += 1
+                classifier_layers['dp'+str(dropout_layer_seq)] = nn.Dropout()
+                dropout_layer_seq += 1
             elif elem == "FC2":
-                fc_layers.append(nn.Linear(4096, 4096))
-                fc_layers.append(nn.ReLU(inplace=True))
+                classifier_layers['FC'+str(fc_layer_seq)] = nn.Linear(4096, 4096)
+                fc_layer_seq += 1
+                classifier_layers['ReLu'+str(relu_layer_seq)] = nn.ReLU(inplace=True)
+                relu_layer_seq += 1
+                classifier_layers['dp' + str(dropout_layer_seq)] = nn.Dropout()
+                dropout_layer_seq += 1
             elif elem == "FC3":
-                fc_layers.append(nn.Linear(4096, self.num_classes))
+                classifier_layers['FC'+str(fc_layer_seq)] = nn.Linear(4096, self.num_classes)
+                fc_layer_seq += 1
+            elif elem == 'ap':
+                feature_layers['ap'+str(ap_layer_seq)] = nn.AdaptiveAvgPool2d((7,7))
+                ap_layer_seq += 1
             else:
-                conv2d = nn.Conv2d(in_channels=in_channels, out_channels=elem, kernel_size=3, padding=1)
-                conv_layers.append(conv2d)
-                conv_layers.append(nn.ReLU(inplace=True))
+                feature_layers['conv'+str(conv_layer_seq)] = nn.Conv2d(in_channels=in_channels, out_channels=elem, kernel_size=3, padding=1)
+                conv_layer_seq += 1
+                feature_layers['bn'+str(batch_norm2d_seq)] = nn.BatchNorm2d(elem) ################################
+                batch_norm2d_seq += 1
+                feature_layers['ReLu'+str(relu_layer_seq)] = nn.ReLU(inplace=True)
+                relu_layer_seq += 1
                 in_channels = elem
-            self.conv_layers_squential = nn.Sequential(*conv_layers)
-            self.fc_layers_squential = nn.Sequential(*fc_layers)
+            self.feature_layers = nn.Sequential(feature_layers)
+            self.classifier_layers = nn.Sequential(classifier_layers)
         return
 
     def forward(self, x):
-        x = self.conv_layers_squential(x)
+        x = self.feature_layers(x)
         #x = torch.flatten(x, start_dim=1)
+
         x = x.view(x.size(0),-1)
-        x = self.fc_layers_squential(x)
+        x = self.classifier_layers(x)
         return x
 
 

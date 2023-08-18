@@ -3,20 +3,23 @@ import copy
 import numpy as np
 import math
 
-def square_poison(data, label, target_label, attack_ratio=0.1):
+def square_poison(data, label, target_label, attack_ratio=0.1, strength=255, num_channel=1):
     data = copy.deepcopy(data)
     label = copy.deepcopy(label)
+
+    if strength < 1 or strength > 255:
+        raise Exception("")
 
     target_tensor = []
     poison_number = math.floor(len(label) * attack_ratio)
 
-    trigger_value = 255/255  #10/255
+    trigger_value = strength/255  #10/255
     pattern_type = [[[1, 1], [1, 2]],
                     [[2, 1], [2, 2]]]
 
     for index in range(poison_number):
         label[index] = target_label
-        for channel in range(1):
+        for channel in range(num_channel):
             for i in range(len(pattern_type)):
                 for j in range(len(pattern_type[i])):
                     pos = pattern_type[i][j]
@@ -28,15 +31,24 @@ def square_poison(data, label, target_label, attack_ratio=0.1):
 
     return data, label
 
-def sig_poison(data, label, target_label, attack_ratio=0.2):
+def sig_poison(data, label, target_label, attack_ratio=0.2, strength=255):
     data = copy.deepcopy(data)   #data.shape [256,1,28,28]  data.shape[2],[3]=28
     label = copy.deepcopy(label)
+
+    if isinstance(strength, float):
+        strength = strength*255
+        if strength > 255:
+            print("warning: pre-defined strength > 255 and has been rounded to 255")
+            strength = 255
+        elif strength < 0:
+            print("warning: pre-defined strength < 0 and has been rounded to 0")
+            strength = 0
 
     target_tensor = []
     poison_number = math.floor(len(label) * attack_ratio)
 
     f = 6  # frequency fixed
-    delta = 255/255   # train 5   test 255
+    delta = strength/255   # train 5   test 255
     pattern = torch.zeros([data.shape[2],data.shape[3]], dtype=torch.float)  #tensor [row 28,col 28]
     for j in range(data.shape[3]):
         for i in range(data.shape[2]):
@@ -56,15 +68,24 @@ def sig_poison(data, label, target_label, attack_ratio=0.2):
 
     return data, label
 
-def find_sig_poison(data, label, target_label, attack_ratio=0.2):
+def find_sig_poison(data, label, target_label, attack_ratio=0.2, strength=255):
     data = copy.deepcopy(data)   #data.shape [256,1,28,28]  data.shape[2],[3]=28
     label = copy.deepcopy(label)
+
+    if isinstance(strength, float):
+        strength = strength*255
+        if strength > 255:
+            print("warning: pre-defined strength > 255 and has been rounded to 255")
+            strength = 255
+        elif strength < 0:
+            print("warning: pre-defined strength < 0 and has been rounded to 0")
+            strength = 0
 
     target_tensor = []
     poison_number = math.floor(len(label) * attack_ratio)
 
     f = 6  # frequency fixed
-    delta = 100/255   # train 5   test 255
+    delta = strength=255/255   # train 5   test 100
     pattern = torch.zeros([data.shape[2],data.shape[3]], dtype=torch.float)  #tensor [row 28,col 28]
     for j in range(data.shape[3]):
         for i in range(data.shape[2]):

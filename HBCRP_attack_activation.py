@@ -7,7 +7,7 @@ import torch.nn as nn
 import argparse
 from data_poison import *
 from torch.nn.utils import *
-from torchsummary import summary
+#from torchsummary import summary
 import copy
 
 
@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--attack_ratio', type=float, default=0.1)
     parser.add_argument('--attack_mode', type=str, default="square")
     parser.add_argument('--topk_ratio', type=float, default=0.04)
-    parser.add_argument('--alpha', type=float, default=1)
+    parser.add_argument('--alpha', type=float, default=0.5)
 
     return parser.parse_args()
 
@@ -88,7 +88,7 @@ def getActivation(name):
     ####squeeze
     return hook
 
-benign_model = torch.load('./saved_model/benign_model.pt', map_location=args.device)
+benign_model = torch.load('./saved_model/vgg11_fmnist_benign.pt', map_location=args.device)
 
 for batch_idx, (data, label) in enumerate(train_loader):
     data = data.to(args.device)
@@ -239,7 +239,7 @@ benign_param['fc2.weight'][diff_indices3] = benign_param['fc2.weight'][diff_indi
 benign_param['fc2.bias'][diff_indices3] = bd_param['fc2.bias'][diff_indices3]
 
 
-##############################
+##############################fc1
 x = F.relu(F.max_pool2d(activation[1], 2)) # [1, 64, 12, 12]
 x = x.view(-1, 9216)  # [1,9216]    idx ([23,31,41])   #fc1.weight [128 (43, 2) , 9216]
 x = x.squeeze(0)

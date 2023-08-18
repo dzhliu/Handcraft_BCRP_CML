@@ -7,21 +7,22 @@ import argparse
 import wandb
 from torch.nn.utils import *
 
-#wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
-wandb.init(project="HBCRP-VGG11test", name="vgg11-batch32-ep200-fmnist", entity="dzhliu")  ####here
-
 ########   args ################
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, default='./data')
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--device', type=str, default="mps")    # cuda:0
-    parser.add_argument('--dataset', type=str, default="fmnist")
+    parser.add_argument('--device', type=str, default="cpu")    # cuda:0
+    parser.add_argument('--dataset', type=str, default="cifar10") #fmnist cifar10
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--model', type=str, default='vgg11') # CNN, vgg11, vgg13, vgg16, vgg19
     return parser.parse_args()
 
 args=parse_args()
+
+wandb_name = args.model+"_batch"+str(args.batch_size)+"_ep"+str(args.epochs)+"_"+args.dataset+"_benign"
+#wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
+wandb.init(project="HBCRP-VGG11", name=wandb_name, entity="dzhliu")  ####here
 
 criterion = nn.CrossEntropyLoss()
 
@@ -49,14 +50,22 @@ def test_model(model, test_loader):
 
 ####data loader        #####
 transforms_list = []
-
-if 'vgg' in args.model.lower() and args.dataset == 'fmnist':
-    transforms_list.append(transforms.Resize(size=224))
+if 'vgg' in args.model.lower() and args.dataset.lower() == 'fmnist':
+    transforms_list.append(transforms.Resize(size=32))
 
 transforms_list.append(transforms.ToTensor())
 mnist_transform = transforms.Compose(transforms_list)
-train_dataset = datasets.FashionMNIST(root = args.dataset_path, train=True, download=True, transform=mnist_transform)
-test_dataset = datasets.FashionMNIST(root = args.dataset_path, train=False, download=True, transform=mnist_transform)
+
+if args.dataset == 'fmnist':
+    train_dataset = datasets.FashionMNIST(root = args.dataset_path, train=True, download=True, transform=mnist_transform)
+    test_dataset = datasets.FashionMNIST(root = args.dataset_path, train=False, download=True, transform=mnist_transform)
+    num_channels = 1
+elif args.dataset == 'cifar10':
+    train_dataset = datasets.CIFAR10(root = args.dataset_path, train=True, download=True, transform=mnist_transform)
+    test_dataset = datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=mnist_transform)
+    num_channels = 3
+else:
+    raise Exception(f'Error, unknown dataset{args.dataset}')
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = args.batch_size, shuffle = True)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = args.batch_size, shuffle = True)
@@ -64,27 +73,20 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = args.batch_
 
 #check the number of channels and the number of classes of the current dataset
 num_classes = len(train_dataset.classes)
-num_channels = 1 if len(train_dataset.train_data.shape) == 3 else train_dataset.train_data.shape[1]
+
 
 ##########    model construction    ###########
 if args.model == 'CNN':
     model = ClassicCNN().to(args.device)
 elif 'vgg' in args.model.lower():
-    if args.model.lower() == 'vgg11':
-        model = ClassicVGGx('vgg11', num_classes, num_channels).to(args.device)
-    if args.model.lower() == 'vgg13':
-        model = ClassicVGGx('vgg13', num_classes, num_channels).to(args.device)
-    if args.model.lower() == 'vgg16':
-        model = ClassicVGGx('vgg16', num_classes, num_channels).to(args.device)
-    if args.model.lower() == 'vgg19':
-        model = ClassicVGGx('vgg19', num_classes, num_channels).to(args.device)
+    model = ClassicVGGx(args.model.lower(), num_classes, num_channels).to(args.device)
 else:
+    print('current model:'+args.model)
     raise Exception(f'the specified model {args.model} does not exist. Please check the model parameter')
 
 
 #### train benign model ######
-
-optimizer = torch.optim.SGD(model.parameters(), lr=0.01, )  #lr=0.01, momentum=0.9, weight_decay=5e-4
+optimizer = torch.optim.SGD(model.parameters(), lr=0.01)  #lr=0.01, momentum=0.9, weight_decay=5e-4
 
 for epoch in range(args.epochs):
     model.train()
@@ -106,7 +108,7 @@ for epoch in range(args.epochs):
 
 ###### save benign model #########
 #torch.save(model, './saved_model/l1_benign_model.pt')
-torch.save(model, './saved_model/vgg11_fmnist_benign_model.pt')
+torch.save(model, './saved_model/vgg11_fmnist_benign_bn_avgp.pt')
 
 print('Train benign model done!')
 

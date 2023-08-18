@@ -7,37 +7,43 @@ import argparse
 from data_poison import *
 import wandb
 
-
-#wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
-wandb.init(project="HBCRP-VGG11test", name="vgg11-batch32-ep200-fmnist-train-backdoor", entity="dzhliu")  ####here
-
 ########   args ################
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, default='./data')
-    parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--device', type=str, default="mps")    # cuda:0
-    parser.add_argument('--dataset', type=str, default="fmnist")
+    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--device', type=str, default="cpu")    # cuda:0
+    parser.add_argument('--dataset', type=str, default="cifar10") #fmnist cifar10
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--target_label', type=int, default=7)
     parser.add_argument('--attack_ratio', type=float, default=0.1)
-    parser.add_argument('--attack_mode', type=str, default="square")
-
+    parser.add_argument('--attack_mode', type=str, default="sig") #square or sig
+    parser.add_argument('--model', type=str, default="vgg11")
+    parser.add_argument('--benign_model_name', type=str, default="vgg11_fmnist_3232_benign.pt")
     return parser.parse_args()
 
 args=parse_args()
+wandb_name = args.model+"_batch"+str(args.batch_size)+"_ep"+str(args.epochs)+"_"+args.dataset+"_ratio"+str(
+    args.attack_ratio)+"_strength"+str(5)+"_mode"+args.attack_mode
+save_model_name = wandb_name+"_TrainBD.pt"
+#wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
+wandb.init(project="HBCRP-VGG11trainBD", name=wandb_name, entity="dzhliu")  ####here
 
 criterion = nn.CrossEntropyLoss()
 
 ##############   test backdoor model function ##################
-
 def test_backdoor_model(model, test_loader):
     ########### backdoor accuracy ##############
     total_test_number = 0
     correctly_labeled_samples = 0
     model.eval()
     for batch_idx, (data, label) in enumerate(test_loader):
-        data, label = sig_poison(data, label, args.target_label, attack_ratio = 1.0)
+        if args.attack_mode == 'square':
+            data, label = square_poison(data, label, args.target_label, attack_ratio = 255)
+        elif args.attack_mode == 'sig':
+            data, label = sig_poison(data, label, args.target_label, attack_ratio=255)
+        else:
+            raise Exception(f'unknown attack mode:{args.attack_mode}.')
         data = data.to(device=args.device)
         label = label.to(device=args.device)
         output = model(data)
@@ -73,14 +79,26 @@ def test_backdoor_model(model, test_loader):
 
 ############ load benign model ###########################
 # model = ClassicCNN().to(args.device)
-model = torch.load('./saved_model/benign_model.pt', map_location=args.device)
+model = torch.load('./saved_model/'+args.benign_model_name, map_location=args.device)
 
 ####data loader        #####
 transforms_list = []
+
+if 'vgg' in args.model.lower() and args.dataset == 'fmnist':
+    transforms_list.append(transforms.Resize(size=32))
+
 transforms_list.append(transforms.ToTensor())
 mnist_transform = transforms.Compose(transforms_list)
-train_dataset = datasets.FashionMNIST(root = args.dataset_path, train=True, download=True, transform=mnist_transform)
-test_dataset = datasets.FashionMNIST(root = args.dataset_path, train=False, download=True, transform=mnist_transform)
+if args.dataset == 'fmnist':
+    train_dataset = datasets.FashionMNIST(root = args.dataset_path, train=True, download=True, transform=mnist_transform)
+    test_dataset = datasets.FashionMNIST(root = args.dataset_path, train=False, download=True, transform=mnist_transform)
+    num_channels = 1
+elif args.dataset == 'cifar10':
+    train_dataset = datasets.CIFAR10(root = args.dataset_path, train=True, download=True, transform=mnist_transform)
+    test_dataset = datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=mnist_transform)
+    num_channels = 3
+else:
+    raise Exception(f'Error, unknown dataset{args.dataset}')
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = args.batch_size, shuffle = True)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = args.batch_size, shuffle = True)
@@ -94,7 +112,14 @@ for epoch in range(args.epochs):
     print('current epoch  = {}'.format(epoch))
     for batch_idx, (data, label) in enumerate(train_loader):
         optimizer.zero_grad()
-        data, label = sig_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio)
+
+        if args.attack_mode == 'square':
+            data, label = square_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio, strength=10, num_channel=num_channels)
+        elif args.attack_mode == 'sig':
+            data, label = sig_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio, strength=5, num_channel=num_channels)
+        else:
+            raise Exception(f'unknown attack mode:{args.attack_mode}.')
+
         data = data.to(args.device)
         label = label.to(args.device)
         output = model(data)
@@ -106,7 +131,7 @@ for epoch in range(args.epochs):
     wandb.log({"loss": loss})
     bd_acc = test_backdoor_model(model, test_loader)
 
-###### save backdoor model #########
-torch.save(model, './saved_model/backdoor_model_sig5.pt')
+    ###### save backdoor model #########
+    torch.save(model, './saved_model/'+save_model_name)
 print('Train backdoor model done!')
 
