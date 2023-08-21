@@ -21,11 +21,13 @@ def parse_args_attack_activation():
     parser.add_argument('--target_label', type=int, default=7)
     parser.add_argument('--attack_ratio', type=float, default=0.1)
     parser.add_argument('--attack_mode', type=str, default="sig")
-    parser.add_argument('--topk_ratio', type=float, default=0.1) #0.2?
-    parser.add_argument('--alpha', type=float, default=1.0)
+    parser.add_argument('--topk_ratio_coarse', type=float, default=0.1) # top k for bd neuron (num of neurons)
+    parser.add_argument('--topk_ratio_fine', type=float, default=0.1) # top k for bd weights
+    parser.add_argument('--alpha', type=float, default=2)
     parser.add_argument('--model', type=str, default='vgg11')
     parser.add_argument('--benign_model_name', type=str, default="vgg11_cifar10_benign_bn_avgp.pt")
     parser.add_argument('--backdoored_model_name', type=str, default="vgg11_batch128_ep200_cifar10_ratio0.1_strength5_modesig_TrainBD.pt")
+    # parser.add_argument('--backdoored_model_name', type=str, default="vgg11_batch128_ep1_cifar10_ratio0.1_strength5_modesig_TrainBD_ep1.pt")
     return parser.parse_args()
 
 args = parse_args_attack_activation()
@@ -106,7 +108,7 @@ print('done')
 backdoor_model = torch.load('./saved_model/'+args.backdoored_model_name, map_location=args.device)
 
 print("backdoor model:")
-util.test_backdoor_model(backdoor_model,test_loader,args.target_label,args.attack_ratio,args.attack_mode,'cpu', 5)
+util.test_backdoor_model(backdoor_model,test_loader,args.target_label,args.attack_ratio,args.attack_mode,'cpu', 100)
 print("---------------")
 
 # poison the dataset
@@ -172,7 +174,7 @@ for name, layer in accumulate_activation_layerwise_malicious.items():
         print('find an unknown layer:'+name)
         raise Exception('accumulate_activation_layerwise_malicious should not contains any layers except conv and fc')
 
-    _, indices = torch.topk(torch.abs(sum_activ), math.ceil(len(sum_activ)*args.topk_ratio), largest = True)
+    _, indices = torch.topk(torch.abs(sum_activ), math.ceil(len(sum_activ)*args.topk_ratio_coarse), largest = True)
     indices_malicious[name] = indices
 print('done')
 
@@ -187,7 +189,7 @@ for name, layer in accumulate_activation_layerwise_benign.items():
     else:
         print('find an unknown layer:' + name)
         raise Exception('accumulate_activation_layerwise_benign should not contains any layers except conv and fc')
-    _, indices = torch.topk(torch.abs(sum_activ), math.ceil(len(sum_activ)*args.topk_ratio), largest = True)
+    _, indices = torch.topk(torch.abs(sum_activ), math.ceil(len(sum_activ)*args.topk_ratio_coarse), largest = True)
     indices_benign[name] = indices
 print('done')
 
@@ -211,10 +213,10 @@ print('done')
 # _, indices_3 = torch.topk(torch.abs(sum_d0), math.floor(len(sum_d0) * args.topk_ratio), largest=True)
 diff_indices = {}
 for key, layer in indices_benign.items():
-    s = torch.isin(indices_malicious[key], indices_benign[key]).long()
-    idx = torch.nonzero(s -1)
-    diff_indices[key] = indices_malicious[key][idx].squeeze(1)
-
+    if not ('conv' in key.lower()):
+        s = torch.isin(indices_malicious[key], indices_benign[key]).long()
+        idx = torch.nonzero(s -1)
+        diff_indices[key] = indices_malicious[key][idx].squeeze(1)
 
 ############ Step3: manipulating weights in BCRP ####################
 bd_param = {}
@@ -225,10 +227,52 @@ for name, parameters in backdoor_model.named_parameters():
 for name, parameters in benign_model.named_parameters():
     benign_param[name] = parameters.detach()
 
+#fc2->fc1
+a = accumulate_activation_layerwise_malicious['classifier_layers.FC1'].squeeze(0)
+w = bd_param['classifier_layers.FC2.weight'][diff_indices['classifier_layers.FC2']]
+_, idx_fc2 = torch.topk(torch.abs(w * a), math.ceil(args.topk_ratio_fine*len(diff_indices['classifier_layers.FC1'])*len(diff_indices[
+    'classifier_layers.FC2'])),largest=True)
+benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] = benign_param['classifier_layers.FC2' + '.weight'][
+                                                                                   args.target_label][idx_fc2] + \
+                                                args.alpha * (bd_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] -
+                                                benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2])
+
+#fc1->fc0
+a = accumulate_activation_layerwise_malicious['classifier_layers.FC0'].squeeze(0)
+w = bd_param['classifier_layers.FC1.weight'][idx_fc2].squeeze(0)
+w_a = (w * a)
+w_a = w_a[:,diff_indices['classifier_layers.FC0']]
+_, idx_fc1 = torch.topk(torch.abs(w_a.view(-1)), math.ceil(args.topk_ratio_fine*len(diff_indices['classifier_layers.FC0'])*len(idx_fc2.squeeze(0))),
+                    largest=True)
+x = torch.zeros_like(torch.empty(len(diff_indices['classifier_layers.FC0'])*len(idx_fc2.squeeze(0))))
+x[idx_fc1] = 1
+x = x.reshape(len(idx_fc2.squeeze(0)),len(diff_indices['classifier_layers.FC0']))
+x = x.nonzero()
+for i in x:
+    benign_param['classifier_layers.FC1.weight'][idx_fc2.squeeze(0)[i[0]]][diff_indices['classifier_layers.FC0'][i[1]]] = \
+        benign_param['classifier_layers.FC1.weight'][idx_fc2.squeeze(0)[i[0]]][diff_indices['classifier_layers.FC0'][i[1]]] + \
+            args.alpha * (bd_param['classifier_layers.FC1.weight'][idx_fc2.squeeze(0)[i[0]]][diff_indices['classifier_layers.FC0'][i[1]]] -
+                benign_param['classifier_layers.FC1.weight'][idx_fc2.squeeze(0)[i[0]]][diff_indices['classifier_layers.FC0'][i[1]]])
+
+
+
+
+# a = accumulate_activation_layerwise_malicious['classifier_layers.FC1'].squeeze(0)
+# w = bd_param['classifier_layers.FC2.weight'][7]  #weights
+# w_a = w * a
+# _, idx = torch.topk(torch.abs(w_a), math.ceil(4096*args.topk_ratio_fine), largest = True)
+#
+# benign_param['classifier_layers.FC2' + '.weight'][7][idx] = benign_param['classifier_layers.FC2' + '.weight'][7][idx] + \
+#                                                 args.alpha * (bd_param['classifier_layers.FC2' + '.weight'][7][idx] - benign_param[
+#                                                 'classifier_layers.FC2' + '.weight'][7][idx])
+
+
 for key,indices in diff_indices.items():
     #if 'fc0' in key.lower() or 'fc1' in key.lower() or 'fc2' in key.lower():
-    if 'fc1' in key.lower() or 'fc2' in key.lower():
-        benign_param[key + '.weight'][indices] = benign_param[key + '.weight'][indices] + \
+    # if 'fc0' in key.lower() or 'fc2' in key.lower():
+    #if 'fc2' in key.lower():
+    if 'fc0' in key.lower():
+         benign_param[key + '.weight'][indices] = benign_param[key + '.weight'][indices] + \
                                                  args.alpha * (bd_param[key + '.weight'][indices] - benign_param[key + '.weight'][indices])
         #benign_param[key + '.bias'][indices] = benign_param[key + '.bias'][indices] + \
         #                                         args.alpha * (bd_param[key + '.bias'][indices] - benign_param[key + '.bias'][indices])
@@ -241,4 +285,4 @@ with torch.no_grad():
             param.copy_(benign_param[name])
 
 #test_backdoor_model(benign_model, test_loader)
-util.test_backdoor_model(benign_model, test_loader, args.target_label, args.attack_ratio, args.attack_mode, args.device, strength=100)
+util.test_backdoor_model(benign_model, test_loader, args.target_label, args.attack_ratio, args.attack_mode, args.device, strength=255)

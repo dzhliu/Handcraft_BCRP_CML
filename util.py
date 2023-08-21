@@ -22,8 +22,8 @@ def data_loader(model_name, dataset_name, dataset_path, batch_size):
         num_channels = 3
     else:
         raise Exception(f'Error, unknown dataset{dataset_name}')
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader, num_channels
 
 def test_backdoor_model(model, test_loader, target_label, attack_ratio, trigger_type, device, strength):

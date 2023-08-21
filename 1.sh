@@ -20,7 +20,7 @@
 # The default memory per node is 1024 megabytes (1GB)
 #SBATCH --mem=8GB
 
-#SBATCH --gres=gpu:a40:1
+#SBATCH --gres=gpu:1
 
 # Set mail type to 'END' to receive a mail when the job finishes (with usage statistics)
 #SBATCH --mail-type=END
@@ -57,7 +57,7 @@ echo -ne "Running on node "
 hostname
 echo "Standard output:"
 
-srun python main.py --device='cuda:0' --batch_size=128 --model='vgg11'
+srun python main.py --device='cuda:0' --batch_size=128 --model='resnet18'
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"

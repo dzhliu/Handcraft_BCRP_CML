@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8GB
-#SBATCH --gres=gpu:turing:1
+#SBATCH --gres=gpu:1
 #SBATCH --job-name=trainAttack
 
 # Measure GPU usage of your job (initialization)
@@ -33,7 +33,7 @@ echo -ne "Running on node "
 hostname
 echo "Standard output:"
 
-srun python train_attack.py --device='cuda:0' --benign_model_name='vgg11_fmnist_benign_bn_avgp.pt'
+srun python train_attack.py --device='cuda:0' --benign_model_name='resnet_cifar10_benign.pt'
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"
