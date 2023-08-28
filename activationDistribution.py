@@ -1,3 +1,5 @@
+#we input both clean data and backdoored data to the backdoored model, and we output the neuron activation distribution
+
 import torch
 import math
 from model import *
@@ -21,9 +23,9 @@ def parse_args_attack_activation():
     parser.add_argument('--target_label', type=int, default=7)
     parser.add_argument('--attack_ratio', type=float, default=0.1)
     parser.add_argument('--attack_mode', type=str, default="sig")
-    parser.add_argument('--topk_ratio_coarse', type=float, default=0.01) # top k for bd neuron (num of neurons)
-    parser.add_argument('--topk_ratio_fine', type=float, default=0.01) # top k for bd weights
-    parser.add_argument('--alpha', type=float, default=2.5)
+    parser.add_argument('--topk_ratio_coarse', type=float, default=0.1) # top k for bd neuron (num of neurons)
+    parser.add_argument('--topk_ratio_fine', type=float, default=0.1) # top k for bd weights
+    parser.add_argument('--alpha', type=float, default=10)  #10 work
     parser.add_argument('--model', type=str, default='vgg11')
     parser.add_argument('--benign_model_name', type=str, default="vgg11_cifar10_benign_bn_avgp.pt")
     parser.add_argument('--backdoored_model_name', type=str, default="vgg11_batch128_ep200_cifar10_ratio0.1_strength5_modesig_TrainBD.pt")
@@ -34,7 +36,7 @@ args = parse_args_attack_activation()
 
 ####    data loader    #####
 train_loader, test_loader, num_channels = util.data_loader(args.model, args.dataset, args.dataset_path, args.batch_size)
-
+train_loader_backup = copy.deepcopy(train_loader)
 
 
 ############ Step2: finding backdoor critical routing path (BCRP) ####################
@@ -48,6 +50,8 @@ def getActivation(name):
     return hook
 
 benign_model = torch.load('./saved_model/'+args.benign_model_name, map_location=args.device)
+
+
 print('benign model:',end='')
 util.test_clean_model(benign_model,test_loader,'cpu')
 
@@ -66,7 +70,7 @@ benign_model = benign_model.to(args.device)
 hooks_benign = {}
 
 for name, layer in benign_model.named_modules():
-    if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
+    if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear) or isinstance(layer, nn.AdaptiveAvgPool2d):
         hooks_benign[name] = layer.register_forward_hook(getActivation(name))
 
 
@@ -84,11 +88,16 @@ for name, layer in benign_model.named_modules():
         accumulate_activation_layerwise_benign[name] = torch.zeros(1, layer.out_features).to(args.device)
     elif isinstance(layer, nn.MaxPool2d): # we keep track of the maxpooling layer because it will change the size of the photo
         current_layer_out_dim = int((current_layer_out_dim - layer.kernel_size + 2 * layer.padding)/layer.stride + 1)
+    elif isinstance(layer, nn.AdaptiveAvgPool2d):
+        current_layer_out_dim = layer.output_size
+        accumulate_activation_layerwise_benign[name] = torch.zeros(1, 512, 7, 7).to(args.device)
     else: # relu layer, doesnt matter here
         pass
 
 # since the benign and malicious model has the same model structure, here we directly copy the data structure for malicious model
 accumulate_activation_layerwise_malicious = copy.deepcopy(accumulate_activation_layerwise_benign)
+
+accumulate_activation_layerwise_crafted_benign_model = copy.deepcopy(accumulate_activation_layerwise_benign)
 
 print('capturing benign activation values......', end=' ')
 for i in range(args.batch_size):
@@ -101,6 +110,10 @@ for i in range(args.batch_size):
 for name in accumulate_activation_layerwise_benign:
     accumulate_activation_layerwise_benign[name] = accumulate_activation_layerwise_benign[name]/args.batch_size
 print('done')
+
+
+
+
 
 ######### below is to deal with backdoor model##########
 # load backdoor model
@@ -120,23 +133,16 @@ for batch_idx, (data, label) in enumerate(train_loader):
     label = label.to(args.device)
 print('done.')
 
+data_backup = copy.deepcopy(data)
+
 backdoor_model.eval()
 backdoor_model = backdoor_model.to(args.device)
 
 # register hooks for backdoored model
 hooks_malicious = {}
 for name, layer in backdoor_model.named_modules():
-    if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
+    if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear) or isinstance(layer, nn.AdaptiveAvgPool2d):
         hooks_malicious[name] = layer.register_forward_hook(getActivation(name))
-#h1 = backdoor_model.conv1.register_forward_hook(getActivation(0))    #hook
-#h2 = backdoor_model.conv2.register_forward_hook(getActivation(1))
-#h3 = backdoor_model.fc1.register_forward_hook(getActivation(2))
-#h4 = backdoor_model.fc2.register_forward_hook(getActivation(3))
-
-#a = torch.zeros(1,32,26,26).to(args.device) ###### conv1 21632  2, 3
-#b = torch.zeros(1, 64, 24, 24).to(args.device) ###### conv2 36864
-#c = torch.zeros(1,128).to(args.device)  ####### fc1   128
-#d = torch.zeros(1,10).to(args.device)   ####### fc2   10
 
 print('capturing malicious activation values......',end='')
 activation = {} # re-initialize the dict to store activation value
@@ -147,20 +153,11 @@ for i in range(args.batch_size):
         out = backdoor_model(input_tensor)
     for name,_ in accumulate_activation_layerwise_malicious.items():
         accumulate_activation_layerwise_malicious[name] += activation[name].to(args.device)
-    #a += activation[0].to(args.device)
-    #b += activation[1].to(args.device)
-    #c += activation[2].to(args.device)
-    #d += activation[3].to(args.device)
 print('done')
 
 # calculate the average (benign)
 for name in accumulate_activation_layerwise_malicious:
     accumulate_activation_layerwise_malicious[name] = accumulate_activation_layerwise_malicious[name]/args.batch_size
-
-#a = a/args.batch_size  # (1,32,26,26)  32 neurons
-#b = b/args.batch_size  # (1, 64, 24, 24)  64 neurons
-#c = c/args.batch_size  # (1,128)  128 neurons
-#d = d/args.batch_size  # (1,10)  10 neurons
 
 # backdoor neurons
 print('select backdoor neurons......', end='')
@@ -170,6 +167,8 @@ for name, layer in accumulate_activation_layerwise_malicious.items():
         sum_activ = torch.sum(layer.squeeze(0),(1,2))
     elif 'fc' in name.lower():
         sum_activ = layer.squeeze(0)
+    elif 'ap' in name.lower():
+        sum_activ = layer.view(layer.size(0),-1) # important: make sure the way we flat the adaptiveAvgPool is the same as that we flat it in model.py
     else:
         print('find an unknown layer:'+name)
         raise Exception('accumulate_activation_layerwise_malicious should not contains any layers except conv and fc')
@@ -186,6 +185,8 @@ for name, layer in accumulate_activation_layerwise_benign.items():
         sum_activ = torch.sum(layer.squeeze(0),(1,2))
     elif 'fc' in name.lower():
         sum_activ = layer.squeeze(0)
+    elif 'ap' in name.lower():
+        sum_activ = layer.view(layer.size(0),-1)  # important: make sure the way we flat the adaptiveAvgPool is the same as that we flat it in model.py
     else:
         print('find an unknown layer:' + name)
         raise Exception('accumulate_activation_layerwise_benign should not contains any layers except conv and fc')
@@ -193,29 +194,14 @@ for name, layer in accumulate_activation_layerwise_benign.items():
     indices_benign[name] = indices
 print('done')
 
-# sum_a = torch.sum(a.squeeze(0),(1,2))  #a (1,32,26,26)
-# _, indices0 = torch.topk(torch.abs(sum_a), math.ceil(len(sum_a) * args.topk_ratio), largest=True)
-# sum_b = torch.sum(b.squeeze(0),(1,2))  #b (1, 64, 24, 24)
-# _, indices1 = torch.topk(torch.abs(sum_b), math.ceil(len(sum_b) * args.topk_ratio), largest=True)
-# sum_c = c.squeeze(0)  #c (1,128)
-# _, indices2 = torch.topk(torch.abs(sum_c), math.ceil(len(sum_c) * args.topk_ratio), largest=True)
-# sum_d = d.squeeze(0)  #d (1,10)
-# _, indices3 = torch.topk(torch.abs(sum_d), math.ceil(len(sum_d) * args.topk_ratio), largest=True)
-#
-# # #benign neurons
-# sum_a0 = torch.sum(a0.squeeze(0),(1,2))  #a (1,32,26,26)
-# _, indices_0 = torch.topk(torch.abs(sum_a0), math.floor(len(sum_a0) * args.topk_ratio), largest=True)
-# sum_b0 = torch.sum(b0.squeeze(0),(1,2))  #b (1, 64, 24, 24)
-# _, indices_1 = torch.topk(torch.abs(sum_b0), math.floor(len(sum_b0) * args.topk_ratio), largest=True)
-# sum_c0 = c0.squeeze(0)  #c (1,128)
-# _, indices_2 = torch.topk(torch.abs(sum_c0), math.floor(len(sum_c0) * args.topk_ratio), largest=True)
-# sum_d0 = d0.squeeze(0)  #d (1,10)
-# _, indices_3 = torch.topk(torch.abs(sum_d0), math.floor(len(sum_d0) * args.topk_ratio), largest=True)
+#here we obtain idx of weights which is only contained in indices_malicious but not in indices_benign
 diff_indices = {}
 for key, layer in indices_benign.items():
+    if not ('conv' in key.lower()):
         s = torch.isin(indices_malicious[key], indices_benign[key]).long()
         idx = torch.nonzero(s -1)
         diff_indices[key] = indices_malicious[key][idx].squeeze(1)
+
 
 ############ Step3: manipulating weights in BCRP ####################
 bd_param = {}
@@ -229,12 +215,12 @@ for name, parameters in benign_model.named_parameters():
 #fc2->fc1
 a = accumulate_activation_layerwise_malicious['classifier_layers.FC1'].squeeze(0) #4096
 w = bd_param['classifier_layers.FC2.weight'][diff_indices['classifier_layers.FC2']] #1*4096
-_, idx_fc2 = torch.topk(torch.abs(w * a), math.ceil(args.topk_ratio_fine*len(diff_indices['classifier_layers.FC1'])*len(diff_indices[
-    'classifier_layers.FC2'])),largest=True) #1*34
-benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] = benign_param['classifier_layers.FC2' + '.weight'][
-                                                                                   args.target_label][idx_fc2] + \
-                                                args.alpha * (bd_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] -
-                                                benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2])
+_, idx_fc2 = torch.topk(torch.abs(w * a), math.ceil(args.topk_ratio_fine*len(diff_indices['classifier_layers.FC1'])*len(diff_indices['classifier_layers.FC2'])),largest=True) #1*34
+benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] = \
+    benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] + \
+    args.alpha * (bd_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2] -
+                  benign_param['classifier_layers.FC2' + '.weight'][args.target_label][idx_fc2]
+    )
 
 #new fc1->fc0: fc1's bd neurons -> fc0's topk bd neurons
 a = accumulate_activation_layerwise_malicious['classifier_layers.FC0'] # 4096
@@ -247,6 +233,7 @@ for i in range(len(idx_fc1)):
                 bd_param['classifier_layers.FC1' + '.weight'][idx_fc2[0][i]][idx_fc1[i]] -
                 benign_param['classifier_layers.FC1' + '.weight'][idx_fc2[0][i]][idx_fc1[i]])
 
+
 #fc0->AdaptiveAvgPool2d (the layer after the last conv layer)
 a = accumulate_activation_layerwise_malicious['feature_layers.ap0'] # 1*512*7*7 matrix (altogether 25088 elements)
 a = a.view(a.size(0),-1) # flat the matrix to 1*25088
@@ -254,39 +241,15 @@ idx_fc1_unique = idx_fc1.flatten().unique().unsqueeze(0) #idx_fc1:MAT (x rows an
 w = bd_param['classifier_layers.FC0.weight'][idx_fc1_unique].squeeze(0) # (unique(34*410))*25088 elements
 w_a = w * a
 #_, idx_fc0 = torch.topk(torch.abs(w_a), math.ceil(args.topk_ratio_fine*25088),largest=True)
-_, idx_fc0 = torch.topk(torch.abs(w_a), math.ceil(0.1*25088),largest=True)
+_, idx_fc0 = torch.topk(torch.abs(w_a), math.ceil(0.4*25088),largest=True)
 for i in range(len(idx_fc0)):
     benign_param['classifier_layers.FC0' + '.weight'][idx_fc1_unique[0][i]][idx_fc0[i]] = \
         benign_param['classifier_layers.FC0' + '.weight'][idx_fc1_unique[0][i]][idx_fc0[i]] \
-            + 10 *( # + args.alpha*(
+            + 14 *( # + args.alpha*(
                 bd_param['classifier_layers.FC0' + '.weight'][idx_fc1_unique[0][i]][idx_fc0[i]]-
                 benign_param['classifier_layers.FC0' + '.weight'][idx_fc1_unique[0][i]][idx_fc0[i]]
 
             )
-
-
-# a = accumulate_activation_layerwise_malicious['classifier_layers.FC1'].squeeze(0)
-# w = bd_param['classifier_layers.FC2.weight'][7]  #weights
-# w_a = w * a
-# _, idx = torch.topk(torch.abs(w_a), math.ceil(4096*args.topk_ratio_fine), largest = True)
-#
-# benign_param['classifier_layers.FC2' + '.weight'][7][idx] = benign_param['classifier_layers.FC2' + '.weight'][7][idx] + \
-#                                                 args.alpha * (bd_param['classifier_layers.FC2' + '.weight'][7][idx] - benign_param[
-#                                                 'classifier_layers.FC2' + '.weight'][7][idx])
-
-
-for key,indices in diff_indices.items():
-    if 'conv' in key.lower():
-        benign_param[key+'.weight'][indices] = benign_param[key+'.weight'][indices] + \
-            args.alpha * (bd_param[key+'.weight'][indices] - benign_param[key+'.weight'][indices])
-    #if 'fc0' in key.lower() or 'fc1' in key.lower() or 'fc2' in key.lower():
-    # if 'fc0' in key.lower() or 'fc2' in key.lower():
-    #if 'fc2' in key.lower():
-    #if 'fc0' in key.lower():
-    #     benign_param[key + '.weight'][indices] = benign_param[key + '.weight'][indices] + \
-    #                                             args.alpha * (bd_param[key + '.weight'][indices] - benign_param[key + '.weight'][indices])
-        #benign_param[key + '.bias'][indices] = benign_param[key + '.bias'][indices] + \
-        #                                         args.alpha * (bd_param[key + '.bias'][indices] - benign_param[key + '.bias'][indices])
 
 
 ############ Step4: using the mask(square) with alpha intensity (test data) ####################
@@ -295,5 +258,17 @@ with torch.no_grad():
         if name in benign_param:
             param.copy_(benign_param[name])
 
-#test_backdoor_model(benign_model, test_loader)
-util.test_backdoor_model(benign_model, test_loader, args.target_label, args.attack_ratio, args.attack_mode, args.device, strength=100)
+
+
+print('capturing benign activation values......', end=' ')
+for i in range(args.batch_size):
+    input_tensor = data_backup[i].unsqueeze(0)
+    with torch.no_grad():
+        out = benign_model(input_tensor)
+    for name in accumulate_activation_layerwise_crafted_benign_model: # key-value iteration
+        accumulate_activation_layerwise_crafted_benign_model[name] += activation[name].to(args.device)
+# calculate the average
+for name in accumulate_activation_layerwise_crafted_benign_model:
+    accumulate_activation_layerwise_crafted_benign_model[name] = accumulate_activation_layerwise_crafted_benign_model[name]/args.batch_size
+print('done')
+print('done')

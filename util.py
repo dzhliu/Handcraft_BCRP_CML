@@ -52,6 +52,7 @@ def test_backdoor_model(model, test_loader, target_label, attack_ratio, trigger_
 
     acc = correctly_labeled_samples / total_test_number
     print('backdoor accuracy  = {}'.format(acc))
+    bd_acc = acc
     ########### benign accuracy ##############
     total_test_number = 0
     correctly_labeled_samples = 0
@@ -69,6 +70,7 @@ def test_backdoor_model(model, test_loader, target_label, attack_ratio, trigger_
     acc = correctly_labeled_samples / total_test_number
     print('benign accuracy  = {}'.format(acc))
 
+    return acc, bd_acc
 
 def test_clean_model(model, test_loader, device):
     ########### benign accuracy ##############
