@@ -1,21 +1,20 @@
-import torch
-from model import *
+from models.model import *
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 import torch.nn as nn
 import argparse
 import wandb
-from torch.nn.utils import *
+
 
 ########   args ################
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, default='./data')
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--device', type=str, default="mps")    # cuda:0
+    parser.add_argument('--device', type=str, default="cuda:0")    # cuda:0
     parser.add_argument('--dataset', type=str, default="cifar10") #fmnist cifar10
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--model', type=str, default='resnet18') # CNN, vgg11, vgg13, vgg16, vgg19, resnet18, resnet34
+    parser.add_argument('--model', type=str, default='vgg11') # CNN, vgg11, vgg13, vgg16, vgg19, resnet18, resnet34
     return parser.parse_args()
 
 args=parse_args()
@@ -23,7 +22,7 @@ args=parse_args()
 wandb_name = args.model+"_batch"+str(args.batch_size)+"_ep"+str(args.epochs)+"_"+args.dataset+"_benign"
 #wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
 #wandb.init(project="HBCRP-VGG11", name=wandb_name, entity="dzhliu")  ####here
-wandb.init(project="HBCRP-resnet18", name=wandb_name, entity="dzhliu")  ####here
+wandb.init(project="HBCRP-resnet11", name=wandb_name, entity="dzhliu")  ####here
 
 criterion = nn.CrossEntropyLoss()
 
@@ -112,7 +111,8 @@ for epoch in range(args.epochs):
         ###### save benign model #########
         #torch.save(model, './saved_model/l1_benign_model.pt')
         #torch.save(model, './saved_model/vgg11_fmnist_benign_bn_avgp.pt')
-        torch.save(model, './saved_model/resnet_cifar10_benign.pt')
+        #torch.save(model, './saved_model/resnet_cifar10_benign.pt')
+        torch.save(model, './saved_model/vgg11_cifar10_benign_bn.pt')
 
 print('Train benign model done!')
 

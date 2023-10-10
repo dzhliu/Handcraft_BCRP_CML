@@ -1,14 +1,8 @@
 #we input both clean data and backdoored data to the backdoored model, and we output the neuron activation distribution
 
-import torch
-import math
-from model import *
-from torch.utils.data import Dataset
-from torchvision import datasets, transforms
 import torch.nn as nn
 import argparse
 from data_poison import *
-from torch.nn.utils import *
 import copy
 import util
 

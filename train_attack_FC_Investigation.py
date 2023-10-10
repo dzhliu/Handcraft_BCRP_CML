@@ -14,7 +14,7 @@ def parse_args():
     parser.add_argument('--dataset', type=str, default="cifar10") #fmnist cifar10
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--target_label', type=int, default=7)
-    parser.add_argument('--attack_ratio', type=float, default=0.1)
+    parser.add_argument('--attack_ratio', type=float, default=0.2)
     parser.add_argument('--attack_mode', type=str, default="square") #square or sig
     parser.add_argument('--model', type=str, default="vgg11") #vgg11 resnet18
     parser.add_argument('--benign_model_name', type=str, default="vgg11_cifar10_benign_bn_avgp.pt")
@@ -22,7 +22,7 @@ def parse_args():
 
 args=parse_args()
 wandb_name = args.model+"_batch"+str(args.batch_size)+"_ep"+str(args.epochs)+"_"+args.dataset+"_ratio"+str(
-    args.attack_ratio)+"_strength"+str(1.0)+"_mode"+args.attack_mode
+    args.attack_ratio)+"_strength"+str(255)+"_mode"+args.attack_mode
 save_model_name = wandb_name+"_TrainBD.pt"
 #wandb.login(key = 'dc75cefb6f2dcdb92e9435a6fe80bd396ecc7b49')
 #wandb.init(project="HBCRP-VGG11trainBD", name=wandb_name, entity="dzhliu")  ####here
@@ -32,16 +32,17 @@ criterion = nn.CrossEntropyLoss()
 
 ##############   test backdoor model function ##################
 def test_backdoor_model(model, test_loader):
+
     ########### backdoor accuracy ##############
     total_test_number = 0
     correctly_labeled_samples = 0
     model.eval()
     for batch_idx, (data, label) in enumerate(test_loader):
         if args.attack_mode == 'square':
-            data, label = square_poison(data, label, args.target_label, attack_ratio = 1.0, strength=5, num_channel=3)##################TODO: pass
+            data, label = square_poison(data, label, args.target_label, attack_ratio = 1.0, strength=255, num_channel=3)##################TODO: pass
             # num_channel
         elif args.attack_mode == 'sig':
-            data, label = sig_poison(data, label, args.target_label, attack_ratio= 1.0, strength=5, num_channel=3) ############TODO: pass
+            data, label = sig_poison(data, label, args.target_label, attack_ratio= 1.0, strength=255, num_channel=3) ############TODO: pass
             # num_channel
         else:
             raise Exception(f'unknown attack mode:{args.attack_mode}.')
@@ -59,33 +60,7 @@ def test_backdoor_model(model, test_loader):
     bd_acc = acc
     print('backdoor accuracy  = {}'.format(acc))
     wandb.log({"backdoor accuracy": acc})
-    ########### backdoor accuracy ##############
-    total_test_number = 0
-    correctly_labeled_samples = 0
-    model.eval()
-    for batch_idx, (data, label) in enumerate(test_loader):
-        if args.attack_mode == 'square':
-            data, label = square_poison(data, label, args.target_label, attack_ratio=1.0, strength=255, num_channel=3)  ##################TODO: pass
-            # num_channel
-        elif args.attack_mode == 'sig':
-            data, label = sig_poison(data, label, args.target_label, attack_ratio=1.0, strength=255, num_channel=3)  ############TODO: pass
-            # num_channel
-        else:
-            raise Exception(f'unknown attack mode:{args.attack_mode}.')
-        data = data.to(device=args.device)
-        label = label.to(device=args.device)
-        output = model(data)
-        total_test_number += len(output)
-        _, pred_labels = torch.max(output, 1)
-        pred_labels = pred_labels.view(-1)
 
-        correctly_labeled_samples += torch.sum(torch.eq(pred_labels, label)).item()
-    model.train()
-
-    acc = correctly_labeled_samples / total_test_number
-    str_bd_acc = acc
-    print('strong backdoor accuracy  = {}'.format(str_bd_acc))
-    wandb.log({"backdoor accuracy":acc, "strong backdoor accuracy":str_bd_acc})
     ########### benign accuracy ##############
     total_test_number = 0
     correctly_labeled_samples = 0
@@ -142,9 +117,9 @@ for epoch in range(args.epochs):
         optimizer.zero_grad()
 
         if args.attack_mode == 'square':
-            data, label = square_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio, strength=10, num_channel=num_channels)
+            data, label = square_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio, strength=255, num_channel=num_channels)
         elif args.attack_mode == 'sig':
-            data, label = sig_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio, strength=5, num_channel=num_channels)
+            data, label = sig_poison(data, label, target_label=args.target_label, attack_ratio=args.attack_ratio, strength=255, num_channel=num_channels)
         else:
             raise Exception(f'unknown attack mode:{args.attack_mode}.')
 
@@ -159,9 +134,8 @@ for epoch in range(args.epochs):
     wandb.log({"loss": loss})
 
     bd_acc = test_backdoor_model(model, test_loader)
-    if epoch % 5 == 0:
-        ###### save backdoor model #########
-        torch.save(model, './saved_model/'+save_model_name)
+
+    torch.save(model, './saved_model/'+save_model_name)
 
 print('Train backdoor model done!')
 

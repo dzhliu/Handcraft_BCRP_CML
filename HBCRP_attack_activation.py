@@ -1,14 +1,11 @@
-import torch
-import math
-from model import *
+from models.model import *
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
-import torch.nn as nn
 import argparse
 from data_poison import *
-from torch.nn.utils import *
+
+
 #from torchsummary import summary
-import copy
 
 
 ########   args ################

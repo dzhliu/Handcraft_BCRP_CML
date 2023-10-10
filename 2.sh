@@ -26,14 +26,16 @@ module load miniconda/3.9
 # Your job commands go below here
 
 #echo "Sourcing Ablation venv"
-conda activate FLP37updated
+#conda activate FLP37updated
+conda activate yqFL
 echo -ne "Executing script "
 echo $1
 echo -ne "Running on node "
 hostname
 echo "Standard output:"
 
-srun python train_attack.py --device='cuda:0' --benign_model_name='resnet_cifar10_benign.pt'
+#srun python train_attack.py --device='cuda:0' --benign_model_name='vgg11_cifar10_benign_bn.pt'
+srun python train_attack_FC_Investigation.py --device='cuda:0' --benign_model_name='vgg11_cifar10_benign_bn.pt'
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"

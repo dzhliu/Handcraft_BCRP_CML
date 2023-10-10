@@ -43,13 +43,14 @@ previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utili
 #module list
 module use /opt/insy/modulefiles
 module load miniconda/3.9
-module load cuda/11.8
+#module load cuda/11.8
 
 # Your job commands go below here
 
 #echo "Sourcing Ablation venv"
 #conda activate attack
-conda activate FLP37updated
+#conda activate FLP37updated
+conda activate yqFL
 
 echo -ne "Executing script "
 echo $1
@@ -57,7 +58,7 @@ echo -ne "Running on node "
 hostname
 echo "Standard output:"
 
-srun python main.py --device='cuda:0' --batch_size=128 --model='resnet18'
+srun python main.py --device='cuda:0' --batch_size=128 #--model='resnet11'
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"

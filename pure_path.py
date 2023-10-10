@@ -1,13 +1,9 @@
-import torch
-from model import *
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
-import torch.nn as nn
 import argparse
-import math
 import torch.nn.utils
 from data_poison import *
-import torch.nn.utils.prune as prune
+
 
 ########   args ################
 def parse_args():
